@@ -167,8 +167,19 @@ async def _start_stream(client: Client, chat_id: int, stream_url: str, is_video:
         logger.info("Started stream in chat %s (is_video=%s)", chat_id, is_video)
         return True, ""
     except Exception as e:
-        logger.error("Stream error in %s: %s", chat_id, e)
-        return False, str(e)[:180]
+        err = str(e)
+        low = err.lower()
+        if "groupcall" in low and ("invalid" in low or "forbidden" in low or "not" in low):
+            msg = "No active voice chat. Start voice chat in group first."
+        elif "chat admin required" in low or "right" in low:
+            msg = "Bot lacks required admin rights for voice chat."
+        elif "peer id invalid" in low or "peer_id_invalid" in low:
+            msg = "Assistant is not in this group."
+        else:
+            msg = err[:180]
+
+        logger.error("Stream error in %s: %s", chat_id, e, exc_info=True)
+        return False, msg
 
 
 def _safe(text: str) -> str:

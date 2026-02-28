@@ -4,6 +4,7 @@ Pyrogram bot client with global middleware.
 """
 
 import logging
+import time
 from pyrogram import Client
 
 from config import API_HASH, API_ID, BOT_TOKEN, OWNER_ID
@@ -11,6 +12,8 @@ from core.pmpermit import is_pm_permitted
 from core.sudo_acl import is_approved_user, is_sudo
 
 logger = logging.getLogger(__name__)
+_seen_updates: dict[tuple[int, int], float] = {}
+_seen_callbacks: dict[str, float] = {}
 
 
 class AuralyxBot(Client):
@@ -92,11 +95,31 @@ class AuralyxBot(Client):
         return True
 
     async def on_message(self, message):
+        # Guard against duplicate update delivery.
+        key = (message.chat.id if message.chat else 0, message.id or 0)
+        now = time.monotonic()
+        for k, ts in list(_seen_updates.items()):
+            if now - ts > 20:
+                _seen_updates.pop(k, None)
+        if key in _seen_updates:
+            return
+        _seen_updates[key] = now
+
         if not await self._check_access(message):
             return
         await super().on_message(message)
 
     async def on_callback_query(self, callback_query):
+        cb_id = getattr(callback_query, "id", "")
+        if cb_id:
+            now = time.monotonic()
+            for k, ts in list(_seen_callbacks.items()):
+                if now - ts > 20:
+                    _seen_callbacks.pop(k, None)
+            if cb_id in _seen_callbacks:
+                return
+            _seen_callbacks[cb_id] = now
+
         if not await self._check_access(callback_query):
             return
         await super().on_callback_query(callback_query)
