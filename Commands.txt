@@ -1,0 +1,160 @@
+﻿========================================
+AURALYX MUSIC - COMMAND LIST (UPDATED)
+========================================
+
+MUSIC
+/play <query|url>
+/vplay <query|url>
+/playforce <query|url>
+/vplayforce <query|url>
+/search <query>
+/vsearch <query>
+/pause
+/resume
+/skip
+/stop
+/queue
+/nowplaying (or /current)
+/autoplay on|off
+/loop off|track|queue
+/shuffle
+/remove <position>
+/clear
+/replay
+/settings music [key value]
+/history
+/toptracks
+/playlist save <name>
+/playlist play <name>
+/playlist list
+/playlist delete <name>
+/lyrics <song>
+/seek <seconds>
+
+ECONOMY / FUN
+/daily
+/bal (or /wallet)
+/give <id> <amount>
+/deposit <amount>
+/withdraw <amount>
+/work
+/crime
+/beg
+/fish
+/hunt
+/rob <id>
+/protect
+/coinflip
+/slots
+/duel
+/blackjack
+/roulette
+/toprich
+/topkills
+/profile
+/leaderboard
+/shop
+/buy
+/inventory
+/use
+/afk
+/marry
+/divorce
+/roll
+/8ball
+/trivia
+
+ADMIN MODERATION
+/promote (reply)
+/demote (reply)
+/mute <id|@username> [reason] (or reply)
+/unmute <id|@username> (or reply)
+/ban <id|@username> [reason] (or reply)
+/unban <id|@username> (or reply)
+/kick <id|@username> (or reply)
+/pin (reply)
+/unpin
+/purge <count>
+/warn
+/unwarn
+/warnings
+/getid
+/stats
+/ping
+
+GLOBAL BROADCAST
+/broadcast <text> (owner, private)
+(rely to any message + /broadcast supports media copy)
+/broadcastpin <text> (owner, private)
+(rely to any message + /broadcastpin supports media copy + pin)
+
+APPROVAL / PERMISSIONS (OWNER)
+/approve <user_id|@username> (opens permission panel)
+/approved
+/disapprove <user_id|@username>
+/unapprove <user_id|@username>
+/permissions <user_id|@username>
+/permkeys
+/setperm <user_id|@username> <perm1,perm2,...>
+/addperm <user_id|@username> <perm1,perm2,...>
+/delperm <user_id|@username> <perm1,perm2,...>
+/makesudo <user_id|@username>
+/remsudo <user_id|@username>
+
+APPROVED / SUDO OPERATIONS
+/whoami
+/giveadmin <user_id|@username> (group or reply)
+/takeadmin <user_id|@username> (group or reply)
+/pmpermit on|off
+/gcast <text> (or reply to copy media)
+/gcastpin <text> (or reply to copy media + pin)
+/megacast <text> (or reply)
+/stormban <user_id|@username> [reason]
+/nukechat <count>
+/massmute <minutes> [limit]
+/warroom
+/restart
+/log [lines]
+/sysinfo
+/userbotleaveall
+/maintenance on|off
+/autoclean on|off [seconds]
+/autowarn on|off [threshold] [window_sec]
+/safeurl on|off
+/autoleave inactive <days>
+/backupauto on|off [interval_h] [keep]
+/incident
+/selftest
+/autobroadcast on <interval_min> <text>
+/autobroadcast off
+/autobroadcast now
+/gban <id> [reason]
+/ungban <id>
+/chatlist
+/leave <chat_id>
+/block <id>
+/unblock <id>
+/announce <chat_id> <text>
+
+OWNER TOOLS
+/o_userinfo <id>
+/o_chatinfo [chat_id]
+/o_set_daily <amount>
+/o_set_robrate <0.0-1.0>
+/o_globalannounce <text>
+/o_backup
+/o_shell <command>
+/o_addsudo <id>
+/o_removesudo <id>
+/o_eval <python>
+/o_stats
+/o_forceleave
+/o_maintenance on|off
+/o_give <id> <amount>
+/o_reset <id>
+
+GENERAL
+/start
+/help
+
+========================================

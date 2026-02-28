@@ -1,0 +1,11 @@
+pyrogram==2.0.106
+tgcrypto
+pytgcalls==3.0.0.dev24
+av==10.0.0
+motor
+dnspython
+yt-dlp
+psutil
+python-dotenv
+aiohttp
+pytest
