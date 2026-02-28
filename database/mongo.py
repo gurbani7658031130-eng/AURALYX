@@ -6,6 +6,7 @@ Async MongoDB with economy schema, auto-user creation, and atomic helpers.
 import logging
 import time
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from config import MONGO_URI
 from core.leaderboard_cache import invalidate_wallet, invalidate_kills
 
@@ -71,6 +72,7 @@ music_settings_col = db["music_settings"]
 playlists_col = db["playlists"]
 music_history_col = db["music_history"]
 sudo_users_col = db["sudo_users"]
+instance_lock_col = db["instance_lock"]
 
 # ── Default economy document ─────────────────
 _DEFAULT_ECONOMY = {
@@ -141,6 +143,8 @@ async def ensure_indexes():
         await music_history_col.create_index([("chat_id", 1), ("played_at", -1)], background=True)
         await music_history_col.create_index([("chat_id", 1), ("track_key", 1)], background=True)
         await sudo_users_col.create_index("user_id", unique=True, background=True)
+        # Global singleton lock cleanup.
+        await instance_lock_col.create_index("expires_at", expireAfterSeconds=0, background=True)
         
         logger.info("MongoDB indexes ensured (all collections).")
     except Exception as e:
@@ -714,3 +718,56 @@ async def get_approved_sudo_users(limit: int = 200) -> list[dict]:
     """Return dynamic SUDO user documents."""
     cursor = sudo_users_col.find({}).sort("approved_at", -1).limit(limit)
     return [doc async for doc in cursor]
+
+
+# Global Instance Lock Helpers
+async def acquire_global_instance_lock(instance_id: str, meta: dict | None = None, ttl_seconds: int = 120) -> bool:
+    """
+    Acquire a global singleton lock for this bot process.
+    Returns True if lock is acquired by this instance, False if another is active.
+    """
+    now = int(time.time())
+    expires_at = now + max(30, int(ttl_seconds))
+    payload = {
+        "_id": "global_bot_instance",
+        "instance_id": instance_id,
+        "updated_at": now,
+        "expires_at": expires_at,
+        "meta": meta or {},
+    }
+
+    doc = await instance_lock_col.find_one_and_update(
+        {
+            "_id": "global_bot_instance",
+            "$or": [
+                {"instance_id": instance_id},
+                {"expires_at": {"$lt": now}},
+                {"expires_at": {"$exists": False}},
+            ],
+        },
+        {"$set": payload},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return bool(doc and doc.get("instance_id") == instance_id)
+
+
+async def renew_global_instance_lock(instance_id: str, ttl_seconds: int = 120) -> bool:
+    """Refresh lock heartbeat. Returns False if lock ownership was lost."""
+    now = int(time.time())
+    expires_at = now + max(30, int(ttl_seconds))
+    result = await instance_lock_col.update_one(
+        {"_id": "global_bot_instance", "instance_id": instance_id},
+        {"$set": {"updated_at": now, "expires_at": expires_at}},
+    )
+    return result.modified_count > 0
+
+
+async def release_global_instance_lock(instance_id: str) -> None:
+    """Release singleton lock if owned by this instance."""
+    await instance_lock_col.delete_one({"_id": "global_bot_instance", "instance_id": instance_id})
+
+
+async def get_global_instance_lock() -> dict | None:
+    """Get current lock document for diagnostics."""
+    return await instance_lock_col.find_one({"_id": "global_bot_instance"})

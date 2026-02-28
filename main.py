@@ -7,6 +7,8 @@ import asyncio
 import logging
 import os
 import sys
+import socket
+import uuid
 
 from dotenv import load_dotenv
 
@@ -41,7 +43,13 @@ from core.sudo_acl import invalidate_cache as invalidate_sudo_cache
 from core.shadowban import load_state as load_shadowbans
 from core.voice_cleanup import start_cleanup, stop_cleanup
 from database.approval_sqlite import init_db as init_approval_db
-from database.mongo import ensure_indexes
+from database.mongo import (
+    acquire_global_instance_lock,
+    ensure_indexes,
+    get_global_instance_lock,
+    release_global_instance_lock,
+    renew_global_instance_lock,
+)
 from utils.stream import cleanup_all as cleanup_streams
 
 logging.basicConfig(
@@ -53,7 +61,10 @@ logging.basicConfig(
 
 logger = logging.getLogger("AuralyxMusic")
 _periodic_task = None
+_lock_heartbeat_task = None
 _instance_lock_path = os.path.join(os.path.dirname(__file__), ".cache", "bot.pid")
+_global_instance_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+_global_lock_ttl = 120
 
 
 def _acquire_instance_lock() -> bool:
@@ -130,9 +141,25 @@ async def _periodic_cleanup():
             await asyncio.sleep(30)
 
 
+async def _global_lock_heartbeat():
+    """Keep distributed singleton lock alive while this process is running."""
+    while True:
+        try:
+            await asyncio.sleep(40)
+            ok = await renew_global_instance_lock(_global_instance_id, ttl_seconds=_global_lock_ttl)
+            if not ok:
+                logger.critical("Lost global instance lock. Exiting to prevent duplicate handlers.")
+                os._exit(1)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("Global lock heartbeat error: %s", e)
+            await asyncio.sleep(10)
+
+
 async def main():
     """Initialize and run the Auralyx Music bot."""
-    global _periodic_task
+    global _periodic_task, _lock_heartbeat_task
 
     logger.info("================================")
     logger.info("  Auralyx Music - Starting Up")
@@ -144,8 +171,22 @@ async def main():
     validate_config()
 
     # Database and core state
+    lock_acquired = False
     try:
         await ensure_indexes()
+        lock_acquired = await acquire_global_instance_lock(
+            _global_instance_id,
+            meta={"host": socket.gethostname(), "pid": os.getpid(), "app": "AuralyxMusic"},
+            ttl_seconds=_global_lock_ttl,
+        )
+        if not lock_acquired:
+            holder = await get_global_instance_lock()
+            logger.critical(
+                "Another global bot instance is active: %s. Exiting.",
+                holder.get("instance_id") if holder else "unknown",
+            )
+            sys.exit(1)
+
         await init_approval_db()
         await invalidate_sudo_cache()
         await load_maintenance()
@@ -178,6 +219,8 @@ async def main():
 
     start_cleanup(bot)
     _periodic_task = asyncio.create_task(_periodic_cleanup())
+    if lock_acquired:
+        _lock_heartbeat_task = asyncio.create_task(_global_lock_heartbeat())
 
     logger.info("================================")
     logger.info("  Auralyx Music - Online")
@@ -190,6 +233,8 @@ async def main():
 
         if _periodic_task and not _periodic_task.done():
             _periodic_task.cancel()
+        if _lock_heartbeat_task and not _lock_heartbeat_task.done():
+            _lock_heartbeat_task.cancel()
 
         stop_cleanup()
 
@@ -210,6 +255,11 @@ async def main():
             pass
         try:
             await bot.stop()
+        except Exception:
+            pass
+        try:
+            if lock_acquired:
+                await release_global_instance_lock(_global_instance_id)
         except Exception:
             pass
 
