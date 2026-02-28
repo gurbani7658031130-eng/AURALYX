@@ -19,6 +19,8 @@ from utils.queue import add_to_queue, get_queue, has_duplicate, queue_size
 logger = logging.getLogger(__name__)
 _play_dedupe: dict[tuple[int, int], float] = {}
 _search_cache: dict[tuple[int, int], tuple[float, list[dict]]] = {}
+_extract_cache: dict[tuple[str, bool], tuple[float, dict]] = {}
+_stream_resolve_cache: dict[tuple[str, bool], tuple[float, str]] = {}
 
 
 def _is_duplicate_play(chat_id: int, message_id: int, ttl: int = 30) -> bool:
@@ -38,6 +40,12 @@ def _is_duplicate_play(chat_id: int, message_id: int, ttl: int = 30) -> bool:
 async def _extract_info(query: str, video: bool = False) -> dict | None:
     """Extract song/video info using yt-dlp."""
     try:
+        cache_key = (query.strip().lower(), video)
+        now = time.monotonic()
+        cached = _extract_cache.get(cache_key)
+        if cached and (now - cached[0] < 120):
+            return dict(cached[1])
+
         import yt_dlp
 
         def run_extraction():
@@ -61,18 +69,71 @@ async def _extract_info(query: str, video: bool = False) -> dict | None:
                 return {
                     "title": info.get("title", "Unknown"),
                     "url": info.get("url"),
+                    "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
                     "duration": info.get("duration", 0),
                     "thumbnail": info.get("thumbnail"),
                     "is_video": video,
                 }
 
-        return await asyncio.to_thread(run_extraction)
+        result = await asyncio.to_thread(run_extraction)
+        _extract_cache[cache_key] = (now, dict(result))
+        return result
     except Exception as e:
         logger.error("Extraction error: %s", e)
         return None
 
 
-async def _start_stream(client: Client, chat_id: int, stream_url: str, is_video: bool = False) -> bool:
+def _is_direct_stream_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(
+        token in u
+        for token in ("googlevideo.com", ".m3u8", ".mpd", ".flv", ".m4a", ".mp3", ".aac", ".ogg", ".opus")
+    )
+
+
+async def _resolve_stream_url(url: str, is_video: bool = False) -> str | None:
+    """Resolve a watch URL to a direct media stream URL when needed."""
+    if not url:
+        return None
+    if _is_direct_stream_url(url):
+        return url
+
+    cache_key = (url, is_video)
+    now = time.monotonic()
+    cached = _stream_resolve_cache.get(cache_key)
+    if cached and (now - cached[0] < 120):
+        return cached[1]
+
+    try:
+        import yt_dlp
+
+        def run_resolve():
+            opts = {
+                "format": (
+                    "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best"
+                    if not is_video
+                    else "best[height<=360][vcodec!=none][acodec!=none]/best"
+                ),
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if "entries" in info:
+                    info = info["entries"][0]
+                return info.get("url")
+
+        direct = await asyncio.to_thread(run_resolve)
+        if direct:
+            _stream_resolve_cache[cache_key] = (now, direct)
+            return direct
+    except Exception as e:
+        logger.warning("Stream URL resolve failed for %s: %s", url, e)
+    return url
+
+
+async def _start_stream(client: Client, chat_id: int, stream_url: str, is_video: bool = False) -> tuple[bool, str]:
     """Start direct streaming using PyTgCalls helpers."""
     from core.assistant import assistant
     from core.call import call_manager
@@ -89,21 +150,25 @@ async def _start_stream(client: Client, chat_id: int, stream_url: str, is_video:
                 await assistant.join_chat(invite)
             except Exception as join_err:
                 logger.error("Could not get assistant into chat %s: %s", chat_id, join_err)
-                raise Exception("Assistant cannot access this group. Promote assistant and allow invites.")
+                return False, "Assistant cannot access this group. Add assistant account to group and retry."
+
+        play_url = await _resolve_stream_url(stream_url, is_video=is_video)
+        if not play_url:
+            return False, "Unable to resolve playable stream URL."
 
         gc = call_manager.get(chat_id)
 
         if not call_manager.is_connected(chat_id):
-            await gc.join_group_call(chat_id, stream_url, is_video=is_video)
+            await gc.join_group_call(chat_id, play_url, is_video=is_video)
             await asyncio.sleep(1)
         else:
-            await gc.change_stream(chat_id, stream_url, is_video=is_video)
+            await gc.change_stream(chat_id, play_url, is_video=is_video)
 
         logger.info("Started stream in chat %s (is_video=%s)", chat_id, is_video)
-        return True
+        return True, ""
     except Exception as e:
         logger.error("Stream error in %s: %s", chat_id, e)
-        return False
+        return False, str(e)[:180]
 
 
 def _safe(text: str) -> str:
@@ -203,9 +268,9 @@ async def play_command(client: Client, message: Message):
         if not sent_main:
             await status_msg.edit_text(ui_text, reply_markup=InlineKeyboardMarkup(buttons))
 
-        ok = await _start_stream(client, message.chat.id, info["url"], is_video=is_video)
+        ok, err = await _start_stream(client, message.chat.id, info["url"], is_video=is_video)
         if not ok:
-            return await message.reply_text("Stream failed to start. Try again in a few seconds.", quote=True)
+            return await message.reply_text(f"Stream failed: `{_safe(err) or 'unknown error'}`", quote=True)
 
         await increment_stat("total_plays")
         await record_track_play(message.chat.id, track)
@@ -309,9 +374,9 @@ async def search_add_callback(client: Client, callback: CallbackQuery):
 
     pos = add_to_queue(chat_id, track)
     if pos == 0:
-        ok = await _start_stream(client, chat_id, track["url"], is_video=bool(track.get("is_video", False)))
+        ok, err = await _start_stream(client, chat_id, track["url"], is_video=bool(track.get("is_video", False)))
         if not ok:
-            return await callback.answer("Failed to start stream.", show_alert=True)
+            return await callback.answer(f"Failed: {(_safe(err) or 'unknown')[:60]}", show_alert=True)
         await increment_stat("total_plays")
         await record_track_play(chat_id, track)
         await callback.answer("Now playing.", show_alert=False)

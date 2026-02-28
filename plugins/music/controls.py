@@ -138,14 +138,14 @@ async def _do_skip(client: Client, chat_id: int, message: Message):
         start_idle_timer(client, chat_id)
         return
 
-    ok = await _start_stream(
+    ok, err = await _start_stream(
         client,
         chat_id,
         next_track.get("url", ""),
         is_video=bool(next_track.get("is_video", False)),
     )
     if not ok:
-        return await message.reply_text("Failed to load next track.", quote=True)
+        return await message.reply_text(f"Failed to load next track: `{err or 'unknown'}`", quote=True)
 
     await record_track_play(chat_id, next_track)
     await message.reply_text(f"Skipped. Next: `{_safe(next_track.get('title', 'Unknown'))[:40]}`", quote=True)

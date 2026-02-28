@@ -109,9 +109,12 @@ async def playlist_command(client: Client, message: Message):
 
             first = current_track(chat_id)
             if first and first.get("url"):
-                ok = await _start_stream(client, chat_id, first["url"], is_video=bool(first.get("is_video", False)))
+                ok, err = await _start_stream(client, chat_id, first["url"], is_video=bool(first.get("is_video", False)))
                 if not ok:
-                    return await message.reply_text("Added playlist but failed to start stream.", quote=True)
+                    return await message.reply_text(
+                        f"Added playlist but failed to start stream: `{err or 'unknown'}`",
+                        quote=True,
+                    )
 
         return await message.reply_text(f"Loaded playlist `{name}` ({len(tracks)} tracks).", quote=True)
 

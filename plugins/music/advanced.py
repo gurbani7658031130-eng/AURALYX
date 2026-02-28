@@ -106,14 +106,14 @@ async def replay_command(client: Client, message: Message):
 
     from .player import _start_stream
 
-    ok = await _start_stream(
+    ok, err = await _start_stream(
         client,
         message.chat.id,
         track.get("url", ""),
         is_video=bool(track.get("is_video", False)),
     )
     if not ok:
-        return await message.reply_text("Failed to replay current track.", quote=True)
+        return await message.reply_text(f"Failed to replay current track: `{err or 'unknown'}`", quote=True)
     await message.reply_text("Replaying current track from start.", quote=True)
 
 
