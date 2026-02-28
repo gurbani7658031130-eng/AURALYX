@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-SESSION_STRING = os.getenv("SESSION_STRING", "")
+SESSION_STRING = os.getenv("SESSION_STRING") or os.getenv("STRING_SESSION", "")
+SESSION_STRING = SESSION_STRING.strip().strip("\"'") if SESSION_STRING else ""
 
 # ── MongoDB ──────────────────────────────────
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017").strip().strip("\"'")
 
 # ── Owner & Sudo ─────────────────────────────
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
