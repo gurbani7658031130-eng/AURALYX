@@ -58,6 +58,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
+# Reduce noisy internal loader logs in production.
+logging.getLogger("pyrogram.client").setLevel(logging.WARNING)
+logging.getLogger("pyrogram.dispatcher").setLevel(logging.INFO)
 
 logger = logging.getLogger("AuralyxMusic")
 _periodic_task = None
@@ -164,6 +167,11 @@ async def main():
     logger.info("================================")
     logger.info("  Auralyx Music - Starting Up")
     logger.info("================================")
+    logger.info(
+        "Build: commit=%s service=%s",
+        os.getenv("RAILWAY_GIT_COMMIT_SHA", "local"),
+        os.getenv("RAILWAY_SERVICE_NAME", "local"),
+    )
 
     if not _acquire_instance_lock():
         sys.exit(1)
