@@ -1,7 +1,7 @@
 pyrogram==2.0.106
 tgcrypto
 pytgcalls==3.0.0.dev24
-av==10.0.0
+av==14.0.1
 motor
 dnspython
 yt-dlp
