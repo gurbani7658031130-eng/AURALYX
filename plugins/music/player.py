@@ -60,22 +60,46 @@ async def _extract_info(query: str, video: bool = False) -> dict | None:
                 "no_warnings": True,
                 "default_search": "ytsearch",
                 "cachedir": False,
+                "source_address": "0.0.0.0",  # force IPv4 on cloud hosts
+                "retries": 2,
+                "socket_timeout": 15,
             }
+            search_inputs = [query] if query.startswith("http") else [
+                f"ytsearch1:{query}",
+                f"ytsearch5:{query}",
+                f"ytsearch:{query}",
+            ]
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                search_query = query if query.startswith("http") else f"ytsearch:{query}"
-                info = ydl.extract_info(search_query, download=False)
-                if "entries" in info:
-                    info = info["entries"][0]
-                return {
-                    "title": info.get("title", "Unknown"),
-                    "url": info.get("url"),
-                    "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
-                    "duration": info.get("duration", 0),
-                    "thumbnail": info.get("thumbnail"),
-                    "is_video": video,
-                }
+                last_err = None
+                for search_query in search_inputs:
+                    try:
+                        info = ydl.extract_info(search_query, download=False)
+                        if not info:
+                            continue
+                        if "entries" in info:
+                            entries = info.get("entries") or []
+                            info = entries[0] if entries else None
+                        if not info:
+                            continue
+                        return {
+                            "title": info.get("title", "Unknown"),
+                            "url": info.get("url"),
+                            "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
+                            "duration": info.get("duration", 0),
+                            "thumbnail": info.get("thumbnail"),
+                            "is_video": video,
+                        }
+                    except Exception as e:
+                        last_err = e
+                        continue
+                if last_err:
+                    raise last_err
+                return None
 
         result = await asyncio.to_thread(run_extraction)
+        if not result:
+            return None
         _extract_cache[cache_key] = (now, dict(result))
         return result
     except Exception as e:
